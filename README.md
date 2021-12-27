@@ -252,7 +252,7 @@ Output: The relationship between the number of committed transactions, the numbe
 
 Example：
 
-<img src="./README.assets/600_Transactions_DeadLock_time.eps" alt="600_Transactions_DeadLock_Time" style="zoom: 5%;" />
+<img src="./README.assets/600_Transactions_DeadLock_time.png" alt="600_Transactions_DeadLock_Time" style="zoom: 5%;" />
 
 
 `Final_Trans_Time.py`
@@ -273,4 +273,4 @@ Output: Deadlock distribution graph
 
 Example:
 
-<img src="./README.assets/1000_distribution.eps" alt="1000_distribution" style="zoom:5%;" />
+<img src="./README.assets/1000_distribution.png" alt="1000_distribution" style="zoom:5%;" />
