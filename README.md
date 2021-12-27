@@ -1,4 +1,4 @@
-# Introduction to LCL Deadlock Detection Modules
+# Introduction to LCL Deadlock Detection and Resolution Modules
 
 The code is divided into two parts:
 
