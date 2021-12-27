@@ -263,7 +263,7 @@ Output: A graph of the relationship between the number of committed transactions
 
 Example:
 
-<img src="./README.assets/1000_Transactions_DeadLock_time.png" alt="1000_Transactions_DeadLock_Time" style="zoom: 1%;" />
+<img src="./README.assets/1000_Transactions_DeadLock_time.png" alt="1000_Transactions_DeadLock_Time" style="zoom: 10%;" />
 
 `interval_distribution.py`
 
