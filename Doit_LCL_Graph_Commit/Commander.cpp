@@ -1,4 +1,4 @@
-﻿#include "Commander.h"
+#include "Commander.h"
 #include <stdio.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -29,17 +29,17 @@ Commander::Commander(NetWork &n) : net(n), running(true)
 	int ret = bind(listenfd, (struct sockaddr *)&sockaddr, sizeof(sockaddr));
 	if (ret == -1)
 	{
-		LOG(INFO) << "!!error " << strerror(errno);
+		LOG(INFO) << "error " << strerror(errno);
 	}
 	assert(ret != -1);
 	ret = listen(listenfd, 1);
 	if (ret == -1)
 	{
-		LOG(INFO) << "!!error " << strerror(errno);
+		LOG(INFO) << "error " << strerror(errno);
 	}
 	assert(ret != -1);
 
-	LOG(INFO) << "Commander is waiting for the Command,listening on 1245 port.";
+	LOG(INFO) << "Commander is waiting for the Command,listening on 1234 port.";
 }
 
 Commander::~Commander()
