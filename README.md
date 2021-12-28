@@ -2,26 +2,17 @@
 
 The code is divided into two parts:
 
-`Doit_LCL_Graph_Commit`: the LCL deadlock detection and resolution code.
+`LCL`: the LCL deadlock detection and resolution code.
 
-`python_code`: Generate the figures required for this paper based on experimental data.
+`data_analysis`: Generate the figures required for this paper based on experimental data.
 
-## Doit_LCL_Graph_Commit
+## LCL
 
 ### Environment configuration
 
 Required dependencies:
 
 - cmake 3.2  
-
-​        `sudo yum install cmake.x86_64 -b test`
-
-```shell
-yum search cmake -b test
-sudo yum install cmake.x86_64 -b test
-#The `cmake` after the author's installation is /usr/local/bin/cmake, so create a soft link.
-# sudo ln -s  /usr/local/bin/cmake /usr/bin/cmake
-```
 
 ### Compile
 
@@ -252,7 +243,7 @@ Output: The relationship between the number of committed transactions, the numbe
 
 Example：
 
-<img src="./README.assets/600_Transactions_DeadLock_time.png" alt="600_Transactions_DeadLock_Time" style="zoom: 1%;" />
+<img src="./README.assets/600_Transactions_DeadLock_time.png" width = "541" height = "400"  alt="600_Transactions_DeadLock_Time"  />
 
 
 `Final_Trans_Time.py`
@@ -263,7 +254,7 @@ Output: A graph of the relationship between the number of committed transactions
 
 Example:
 
-<img src="./README.assets/1000_Transactions_DeadLock_time.png" alt="1000_Transactions_DeadLock_Time" style="zoom: 10%;" />
+<img src="./README.assets/1000_Transactions_DeadLock_time.png" width = "541" height = "400" alt="1000_Transactions_DeadLock_Time"  />
 
 `interval_distribution.py`
 
@@ -273,4 +264,4 @@ Output: Deadlock distribution graph
 
 Example:
 
-<img src="./README.assets/1000_distribution.png" alt="1000_distribution" style="zoom: 1%;" />
+<img src="./README.assets/1000_distribution.png" width = "541" height = "400" alt="1000_distribution " />
