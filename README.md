@@ -2,11 +2,11 @@
 
 The code is divided into two parts:
 
-`LCL`: the LCL deadlock detection and resolution code.
+`src`: the LCL deadlock detection and resolution code.
 
 `data_analysis`: Generate the figures required for this paper based on experimental data.
 
-## LCL
+## src
 
 ### Environment configuration
 
