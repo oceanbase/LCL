@@ -106,6 +106,17 @@ void Auto_cmd()
     // cmd_th.join();
     network.ALL_TO_DB();
 }
+void Auto_MM()
+{
+    //https://github.com/amrayn/easyloggingpp
+    //Unknown  Only applicable to hierarchical logging and is used to turn off logging completely.
+    easylogging_congfigure(el::Level::Unknown);
+    NetWork_MM network;
+    network.Run_Auto_MM(true);
+    network.ALL_TO_DB();
+    std::cout << "Game Over!!!" << std::endl;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2)
@@ -122,6 +133,7 @@ int main(int argc, char **argv)
     MACHINE_RESNUMBER = (uint32_t)(ALL_RESNUMBER / MACHINE_NUMBER);
     //std::cout << MACHINE_RESNUMBER << std::endl;
 
-    Auto_Done();
+    //Auto_Done();
+    Auto_MM();
     return 0;
 }

@@ -107,6 +107,23 @@ public:
 
     void Run_SQL(std::vector<Resource *> &resource_pool);
 
+    //M&M TransactionProcess : Assuming each process waits on one resource at a time, the maximum outdegree of the wait-for graph will be one
+    TransactionProcess(int transprocess_id,int trans_id, std::atomic<int> &global_id,std::atomic<int> &global_ap);
+
+    void Acquire_MM(Resource *resource);
+
+    void StopWait_MM();
+
+    void Rollback_MM();
+
+    void Get_wait_res_MM(Resource *& wait_res);
+   
+    void Get_successor_trans_MM(TransactionProcess *&successor_trans);
+
+    void Run_Transaction_Auto_MM(std::vector<Resource *> &resource_pool, std::atomic<int> &global_id);
+    
+    void Run_SQL_MM(std::vector<Resource *> &resource_pool, std::atomic<int> &global_id);
+
     uint32_t GRandom(std::normal_distribution<double> *distribution, uint32_t max, uint32_t min);
     
     uint32_t GRandom(std::exponential_distribution<double> *distribution, uint32_t max, uint32_t min);
@@ -127,9 +144,11 @@ public:
     int trans_id_;
     std::atomic<bool>running;
     std::atomic<int> LCLV_;
+    std::atomic<bool>ACTIVE;
     std::pair<std::atomic<int>, std::atomic<int>> Pu_AP_ID_;
     std::pair<std::atomic<int>, std::atomic<int>> Pr_AP_ID_;
     int do_sql_id;
+    int do_sql_res_id;
     std::atomic<int> do_lclp;
     std::atomic<int> do_lcls;
     std::atomic<int> do_detect;
@@ -145,7 +164,8 @@ private:
     timespec transaction_start_time_point_;
     std::unordered_set<Resource *> hold_res_set_;
     std::unordered_set<Resource *> wait_res_set_;
-    
+    Resource *wait_res_;
+
     //Generate random numbers
     std::random_device rd;
 	std::mt19937 gen;

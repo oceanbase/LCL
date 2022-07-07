@@ -1203,3 +1203,356 @@ void NetWork::ALL_TO_DB_easy()
     std::cout << "Total number of deadlocks detected: " << detect_count << std::endl;
     std::cout << "The number of transactions that have not yet been committed: " << running_count << std::endl;
 }
+
+
+
+NetWork_MM::NetWork_MM() : global_id_(0), global_trans_id_(0),global_ap_(0), base(1)
+{
+    clock_gettime(CLOCK_MONOTONIC_RAW, &start_time_point_);
+    pthread_rwlock_init(&base_rwlock_, NULL);
+    srandom(start_time_point_.tv_nsec);
+    trans_pool_.resize(ALL_TRANSNUMBER);
+    LOG(INFO) << "ALL_TRANSNUMBER is: " << ALL_TRANSNUMBER;
+
+    for (uint32_t i = 0; i < ALL_TRANSNUMBER; i++)
+    {
+        trans_pool_[i] = new TransactionProcess(i, global_trans_id_++, global_id_,global_ap_);
+    }
+    resource_pool_.resize(ALL_RESNUMBER);
+    for (uint32_t i = 0; i < ALL_RESNUMBER; i++)
+    {
+        resource_pool_[i] = new Resource(i);
+    }
+    LOG(INFO) << "Constructed completely";
+}
+
+NetWork_MM::~NetWork_MM()
+{
+    LOG(DEBUG) << "destory NetWork";
+
+    LOG(DEBUG) << "Start destructuring trans_run_pool";
+    for (uint32_t i = 0; i < ALL_TRANSNUMBER; i++)
+    {
+       // LOG(DEBUG) << "Release trans:" << trans_pool_[i]->trans_id_;
+
+        delete trans_pool_[i];
+        trans_pool_[i] = nullptr;
+    }
+    LOG(DEBUG) << "Released trans";
+
+    for (uint32_t i = 0; i < ALL_RESNUMBER; i++)
+    {
+        delete resource_pool_[i];
+        resource_pool_[i] = nullptr;
+    }
+    LOG(DEBUG) << "Released res";
+}
+
+void NetWork_MM::Thread_Run_MM_Periodic(int deadlock_thread_id)
+{
+    int trans_number = deadlock_thread_id == DEADLOCK_THREAD_NUMBER - 1 ? ALL_TRANSNUMBER - deadlock_thread_id * TRANSACTION_NUMBER_DEADLOCK : TRANSACTION_NUMBER_DEADLOCK;
+    int trans_start = deadlock_thread_id * TRANSACTION_NUMBER_DEADLOCK;
+    int trans_end = trans_start + trans_number;
+    while (!done_)
+    {
+        for (int i = trans_start; i < trans_end; i++)
+        {
+            if (!trans_pool_[i]->ACTIVE)
+            {
+                Transmit(trans_pool_[i]);
+                Detect(trans_pool_[i]);
+            }
+        }
+    }
+}
+
+void NetWork_MM::Thread_Run_Auto_MM(int trans_thread_id)
+{
+    int trans_start = trans_thread_id * TRANSACTION_NUMBER_TRANS_THREAD;
+    int trans_number = trans_thread_id == TRANSACTION_THREAD_NUMBER - 1 ? ALL_TRANSNUMBER - trans_thread_id * TRANSACTION_NUMBER_TRANS_THREAD : TRANSACTION_NUMBER_TRANS_THREAD;
+    int trans_end = trans_start + trans_number;
+    while (GetAllTime_ms() < TIME_OUT)
+    {
+        // uint32_t begin = GetAllTime_ms();
+        for (int i = trans_start; i < trans_end; i++)
+        {
+            if (trans_pool_[i]->running)
+            {
+                // The transaction is not finished.
+                trans_pool_[i]->Run_Transaction_Auto_MM(resource_pool_, global_id_);
+            }
+            else
+            {
+                // The transaction is finished.
+                trans_pool_[i]->OutPut();
+                // trans_pool_[i]->newTrans(global_trans_id_++);
+                trans_pool_[i]->newTrans(global_trans_id_++, global_ap_);
+            }
+        }
+        // uint32_t end = GetAllTime_ms();
+        // std::cout <<"Trans thread id : "<< trans_thread_id<< " It takes time to traverse the transaction processor once: "
+        //<<(end - begin )<<" ms"<< std::endl;
+    }
+    std::cout << "thread id: " << trans_thread_id << " Timeout!!!" << std::endl;
+    // ALL_TO_DB();
+    time_out_ = true;
+    bool out[trans_number];
+    for (int i = 0; i < trans_number; i++)
+    {
+        out[i] = false;
+    }
+    while (GetAllTime_ms() < FINAL_TIME_OUT)
+    {
+        bool alldone = true;
+        for (int i = trans_start; i < trans_end; i++)
+        {
+            if (trans_pool_[i]->running)
+            {
+                alldone = false;
+                // The transaction is not finished.
+                trans_pool_[i]->Run_Transaction_Auto_MM(resource_pool_, global_id_);
+            }
+            else
+            {
+                // The transaction is finished.
+                if (!out[i - trans_start])
+                {
+                    trans_pool_[i]->OutPut();
+                    out[i - trans_start] = true;
+                }
+            }
+        }
+        if (alldone)
+        {
+            break;
+            std::cout << "thread id: " << trans_thread_id << " execution completed!!!" << std::endl;
+        }
+    }
+    std::cout << "thread id: " << trans_thread_id << " Timeout execution completed!!!" << std::endl;
+}
+
+void NetWork_MM::Run_Auto_MM(bool deadlock_output)
+{
+    clock_gettime(CLOCK_MONOTONIC_RAW, &start_time_point_);
+    deadlock_output_ = deadlock_output;
+
+    for (uint32_t i = 0; i < ALL_TRANSNUMBER; i++)
+    {
+        trans_pool_[i]->transaction_process_create_time_point_ = start_time_point_;
+    }
+    for (uint32_t i = 0; i < TRANSACTION_THREAD_NUMBER; i++)
+    {
+        // LOG(DEBUG) << "build trans_thread : " << i << " NO: " << i;
+        workers.emplace_back(std::bind(&NetWork_MM::Thread_Run_Auto_MM, this, i));
+    }
+    std::cout << "workers thread completed" << std::endl;
+    
+    
+    for (uint32_t i = 0; i < DEADLOCK_THREAD_NUMBER; i++)
+    {
+        
+        DeadLock_workers.emplace_back(std::bind(&NetWork_MM::Thread_Run_MM_Periodic, this, i));
+    }
+    std::cout << "DeadLock thread completed" << std::endl;
+
+    int size = workers.size();
+    for (std::thread &worker : workers)
+    {
+        // LOG(DEBUG) << "trans thread join";
+        worker.join();
+        // LOG(DEBUG) << "trans thread join done";
+    }
+    std::cout << "trans completed" << std::endl;
+    done_ = true;
+
+    for (std::thread &DeadLock_worker : DeadLock_workers)
+    {
+        DeadLock_worker.join();
+    }
+    std::cout << "deadlock completed";
+}
+
+// only block trans can Transmit
+void NetWork_MM::Transmit(TransactionProcess *cur_trans)
+{   
+    if(cur_trans->ACTIVE){
+        return;
+    }
+    TransactionProcess *successor_trans = nullptr;
+    cur_trans->Get_successor_trans_MM(successor_trans);
+    if(successor_trans==nullptr){
+        return;
+    }
+    if (cur_trans->Pu_AP_ID_.second < successor_trans->Pu_AP_ID_.second 
+    || (cur_trans->Pu_AP_ID_.second == successor_trans->Pu_AP_ID_.second && cur_trans->Pu_AP_ID_.first > successor_trans->Pu_AP_ID_.first))
+    {
+
+        cur_trans->Pu_AP_ID_.second = successor_trans->Pu_AP_ID_.second.load();
+        cur_trans->Pu_AP_ID_.first = std::min(cur_trans->Pr_AP_ID_.first.load(), successor_trans->Pu_AP_ID_.first.load());
+    }
+}
+
+// only block trans can Detect
+void NetWork_MM::Detect(TransactionProcess *cur_trans)
+{   
+    if(cur_trans->ACTIVE){
+        return;
+    }
+    TransactionProcess *successor_trans = nullptr;
+    cur_trans->Get_successor_trans_MM(successor_trans);
+    if(successor_trans==nullptr){
+        return;
+    }
+    if (cur_trans->Pu_AP_ID_.second == successor_trans->Pu_AP_ID_.second &&
+        cur_trans->Pu_AP_ID_.first == cur_trans->Pr_AP_ID_.first &&
+        cur_trans->Pu_AP_ID_.first == successor_trans->Pu_AP_ID_.first)
+    {
+        DLO_MM(cur_trans);
+        std::cout << "-------M&M detected Trans is: " << cur_trans->trans_id_
+                  << " -------- My downstream node: "
+                  << successor_trans->trans_id_ << std::endl;
+        cur_trans->Rollback_MM();
+        
+        cur_trans->record_detect_time();
+    }
+}
+
+
+void NetWork_MM::DLO_MM(TransactionProcess *detect_trans){
+    int cycle_length = 0;
+    TransactionProcess *successor_trans = nullptr;
+    TransactionProcess * cur_trans = detect_trans;
+
+    
+    // LOG(DEBUG)<<"detect_trans_id is: "<<detect_trans->trans_id_
+    //     <<" detect trans puID is: "<<detect_trans->Pu_AP_ID_.second
+    //     <<" detect trans puAP is: "<<detect_trans->Pu_AP_ID_.first
+    //     <<" detect trans prAp is: "<<detect_trans->Pr_AP_ID_.first;
+
+    while(successor_trans!=detect_trans){
+        //std::cout<< "in while"<<std::endl;
+        cur_trans->Get_successor_trans_MM(successor_trans);
+        // LOG(DEBUG)<<"cur trans_id is: "<<cur_trans->trans_id_
+        // <<"<"<<cur_trans->Pu_AP_ID_.second<<","<<cur_trans->Pu_AP_ID_.first<<">|<"
+        // <<cur_trans->Pr_AP_ID_.second<<","<<cur_trans->Pr_AP_ID_.first<<">"
+        // " ----->"<<"successor trans_id is: "<<successor_trans->trans_id_
+        //  <<"<"<<successor_trans->Pu_AP_ID_.second<<","<<successor_trans->Pu_AP_ID_.first<<">|<"
+        // <<successor_trans->Pr_AP_ID_.second<<","<<successor_trans->Pr_AP_ID_.first<<">";
+
+        if(cur_trans->Pu_AP_ID_.second!=successor_trans->Pu_AP_ID_.second){
+        LOG(WARNING)<<"error: cur.puid!=suc.puid, cur: "<<cur_trans->Pu_AP_ID_.second<<" suc: "<<successor_trans->Pu_AP_ID_.second;
+        }
+        cur_trans=successor_trans;
+        cycle_length++;
+    }
+    
+
+    deadlock_loops_mu_.lock();
+    deadlock_loops_.emplace_back(detect_trans->trans_id_, cycle_length);
+    deadlock_loops_mu_.unlock();
+    std::cout<<"output deadlock loop  detect_trans_id is: "<<detect_trans->trans_id_<<std::endl;
+}
+
+uint32_t NetWork_MM::GetAllTime_ms()
+{
+    timespec now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+    return (now.tv_sec - start_time_point_.tv_sec) * 1000 + (now.tv_nsec - start_time_point_.tv_nsec) / 1000000;
+}
+void NetWork_MM::ALL_TO_DB()
+{
+    unsigned int max_commit_time = 0;
+    std::cout << "Start output" << std::endl;
+    int count = 0;
+    int detect_count = 0;
+    for (int i = 0; i < ALL_TRANSNUMBER; i++)
+    {
+        count += trans_pool_[i]->commit_times_.size();
+        detect_count += trans_pool_[i]->detect_times_.size();
+    }
+    std::cout << "The total number of committed transactions: " << count << std::endl;
+    std::cout << "Total number of deadlocks detected: " << detect_count << std::endl;
+    std::cout << "Output file and commit transactions!" << std::endl;
+    std::ofstream commit_times_file;
+    std::ofstream detect_times_file;
+    std::ofstream deadlock_informations_file;
+    std::ofstream deadlock_loops_file;
+
+    std::ostringstream ostr;
+    ostr << "commit_times_" << RES_NUMBER << "_.csv";
+    std::string commit_times_filename = ostr.str();
+    commit_times_file.open(ostr.str().c_str());
+    ostr.clear();
+    ostr.str("");
+
+    ostr << "detect_times_" << RES_NUMBER << "_.csv";
+    std::string detect_times_filename = ostr.str();
+    detect_times_file.open(ostr.str().c_str());
+    ostr.clear();
+    ostr.str("");
+
+    ostr << "deadlock_informations_" << RES_NUMBER << "_.csv";
+    std::string deadlock_informations_filename = ostr.str();
+    deadlock_informations_file.open(ostr.str().c_str());
+    ostr.clear();
+    ostr.str("");
+
+    ostr << "deadlock_loops_" << RES_NUMBER << "_.csv";
+
+    deadlock_loops_file.open(ostr.str().c_str());
+    // Write the data entered by the user to the file
+    int cycle_max=0;
+    int cycle_min=INT32_MAX;
+    int cycle_sum=0;
+    for (auto data : deadlock_loops_)
+    {
+        deadlock_loops_file << data.first << " " << data.second << std::endl;
+        cycle_max=std::max(cycle_max,data.second);
+        cycle_min=std::min(cycle_min,data.second);
+        cycle_sum+=data.second;
+    }
+    double cycle_average;
+    cycle_average =(double)cycle_sum/(double)detect_count;
+
+    std::cout<<"cycle max: "<<cycle_max<<" cycle min: "<<cycle_min<<" cycle average: "<<cycle_average<<std::endl;
+    std::cout << ostr.str().c_str() << " Output complete!" << std::endl;
+    std::stringstream commit_times_ss;
+    std::stringstream detect_times_ss;
+    for (int i = 0; i < ALL_TRANSNUMBER; i++)
+    {
+        for (auto data : trans_pool_[i]->commit_times_)
+        {
+            max_commit_time = std::max(max_commit_time, data);
+            commit_times_ss << data << ",";
+        }
+        for (auto data : trans_pool_[i]->detect_times_)
+        {
+            detect_times_ss << data << ",";
+        }
+    }
+    std::string res;
+    commit_times_ss >> res;
+
+    commit_times_file << res;
+    std::cout << "Transaction commit time: " << max_commit_time << " ms" << std::endl;
+    std::cout << commit_times_filename << " Output complete!" << std::endl;
+
+    std::string detect_res;
+    detect_times_ss >> detect_res;
+    detect_times_file << detect_res;
+    std::cout << detect_times_filename << " Output complete!" << std::endl;
+
+    for (auto data : deadlock_informations_)
+    {
+        deadlock_informations_file << data.DETECT_ID << " " << data.PREDECESSOR_ID
+                                   << " " << data.SUCCESSOR_ID << " " << data.DETECT_TIME << " "
+                                   << data.DL_INFORMATION << std::endl;
+    }
+
+    // Close files
+    commit_times_file.close();
+    detect_times_file.close();
+    deadlock_informations_file.close();
+    deadlock_loops_file.close();
+    std::cout << deadlock_informations_file << " Output complete!" << std::endl;
+}

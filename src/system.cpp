@@ -276,6 +276,184 @@ void TransactionProcess::Run_SQL(std::vector<Resource *> &resource_pool)
     }
 }
 
+//M&M TransactionProcess : Assuming each process waits on one resource at a time, the maximum outdegree of the wait-for graph will be one
+TransactionProcess::TransactionProcess(int transprocess_id, int trans_id, std::atomic<int> &global_id,std::atomic<int> &global_ap) : transprocess_id_(transprocess_id),
+                                                                                                         trans_id_(trans_id), running(true), ACTIVE(true), LCLV_(0), do_sql_id(-1), do_sql_res_id(0), do_lclp(1), do_lcls(1), do_detect(1), rd{},
+                                                                                                         gen{rd()},
+                                                                                                         // sql_number_distribution_(new std::uniform_real_distribution<double>(SQL_MIN , SQL_MAX )),
+                                                                                                         // resource_distribution_(new std::uniform_real_distribution<double>(RESOURCE_MIN, RESOURCE_MAX))
+                                                                                                         // sql_number_distribution_(new std::normal_distribution<double>(SQL_MEAN , SQL_STDDEV )),
+                                                                                                         resource_distribution_(new std::normal_distribution<double>(RESOURCE_MEAN, RESOURCE_STDDEV)),
+                                                                                                         sql_number_distribution_(new std::exponential_distribution<double>(1 / SQL_MEAN))
+// resource_distribution_(new std::exponential_distribution<double>(1/RESOURCE_MEAN))
+{
+    wait_res_ = nullptr;
+    Pr_AP_ID_.first = Pu_AP_ID_.first = global_id++;
+    Pr_AP_ID_.second = Pu_AP_ID_.second = global_ap++;
+    pthread_rwlock_init(&trans_rwlock_, NULL);
+    // Transaction configuration
+    sql_num = GRandom(sql_number_distribution_, SQL_MAX, SQL_MIN);
+
+    trans_disposition.resize(sql_num);
+    clock_gettime(CLOCK_MONOTONIC_RAW, &transaction_start_time_point_);
+    clock_gettime(CLOCK_MONOTONIC_RAW, &transaction_process_create_time_point_);
+    std::unordered_set<int> id_set;
+    for (int i = 0; i < sql_num; i++)
+    {
+        bool same_machine = true;
+        trans_disposition[i].res_num = GRandom(resource_distribution_, RESOURCE_MAX, RESOURCE_MIN);
+        trans_disposition[i].write = random() % 100 > SQL_READ_PERCENT;
+        trans_disposition[i].acquire_resource_id.resize(trans_disposition[i].res_num);
+        for (int j = 0; j < trans_disposition[i].res_num; j++)
+        {
+            int machine_id = random() % MACHINE_NUMBER;
+            int res_id = machine_id * MACHINE_RESNUMBER + random() % MACHINE_RESNUMBER;
+
+            if (id_set.count(res_id))
+            {
+                res_id = machine_id * MACHINE_RESNUMBER + random() % MACHINE_RESNUMBER;
+            }
+            else
+            {
+                trans_disposition[i].acquire_resource_id[j] = res_id;
+                id_set.insert(res_id);
+            }
+        }
+    }
+}
+
+
+void TransactionProcess::Acquire_MM(Resource *resource)
+{
+    bool success = false;
+    pthread_rwlock_wrlock(&trans_rwlock_);
+    success = resource->Acquire(this);
+    if (success)
+    {
+        do_sql_res_id++;
+        hold_res_set_.insert(resource);
+        if (wait_res_ == resource)
+        {
+            //M&M ACTIVE
+            wait_res_ = nullptr;
+            ACTIVE = true;
+        }
+    }
+    else
+    {
+        wait_res_ = resource;
+        ACTIVE = false;
+    }
+    pthread_rwlock_unlock(&trans_rwlock_);
+}
+
+void TransactionProcess::StopWait_MM()
+{
+    pthread_rwlock_wrlock(&trans_rwlock_);
+    ACTIVE = true;
+    wait_res_ = nullptr;
+    pthread_rwlock_unlock(&trans_rwlock_);
+}
+
+void TransactionProcess::Rollback_MM()
+{
+    running = false;
+    do_sql_id = sql_num;
+    do_sql_res_id = 0;
+    StopWait_MM();
+    Release();
+}
+
+void TransactionProcess::Get_wait_res_MM(Resource *&wait_res)
+{
+    pthread_rwlock_rdlock(&trans_rwlock_);
+    wait_res = wait_res_;
+    pthread_rwlock_unlock(&trans_rwlock_);
+}
+
+void TransactionProcess::Get_successor_trans_MM(TransactionProcess *&successor_trans){
+    pthread_rwlock_rdlock(&trans_rwlock_);
+    if(ACTIVE||wait_res_==nullptr){
+        //no successor_trans, return;
+        pthread_rwlock_unlock(&trans_rwlock_);
+        return;
+    }
+    wait_res_->Get_cur_trans(successor_trans);
+    //LOG(DEBUG) <<"successor_trans is: "<<successor_trans<<" cur status is ACTIVE?:"<<ACTIVE  <<" waitres's cur_trans is: "<<wait_res_->cur_trans_;
+    
+
+    pthread_rwlock_unlock(&trans_rwlock_);
+}
+
+void TransactionProcess::Run_Transaction_Auto_MM(std::vector<Resource *> &resource_pool, std::atomic<int> &global_id)
+{
+    if (do_sql_id == sql_num)
+    {
+        // Finished
+        StopWait_MM();
+        Release();
+        if (wait_res_ != nullptr)
+        {
+            StopWait_MM();
+            Release();
+        }
+        running = false;
+    }
+    else
+    {
+        Run_SQL_MM(resource_pool,global_id);
+    }
+}
+
+void TransactionProcess::Run_SQL_MM(std::vector<Resource *> &resource_pool, std::atomic<int> &global_id)
+{
+    if (ACTIVE)
+    {
+        // It means that the last SQL is executed.
+        if (do_sql_res_id == 0)
+        {
+            do_sql_id++;
+        }
+        if (do_sql_id >= sql_num)
+        {
+            do_sql_res_id = 0;
+            return;
+        }
+
+        // Not blocked: It means that the last SQL is executed and the next SQL is executed.
+        if (trans_disposition[do_sql_id].write)
+        {
+            // Write SQL: to apply for resources
+            while (do_sql_res_id < trans_disposition[do_sql_id].res_num)
+            {
+                if (do_sql_id >= sql_num)
+                {
+                    do_sql_res_id = 0;
+                    return;
+                }
+                this->Acquire_MM(resource_pool[trans_disposition[do_sql_id].acquire_resource_id[do_sql_res_id]]);
+                if (!ACTIVE)
+                {
+                    // acquire failed,  M&M Block
+                    this->Pu_AP_ID_.first=this->Pr_AP_ID_.first.load();
+                    this->Pu_AP_ID_.second=global_id++;
+                    this->Pr_AP_ID_.second=Pu_AP_ID_.second.load();
+                    break;
+                }
+            }
+            if (do_sql_res_id == trans_disposition[do_sql_id].res_num)
+            {
+                do_sql_res_id = 0;
+            }
+        }
+    }
+    else
+    {
+        Resource *wait_res;
+        Get_wait_res_MM(wait_res);
+        this->Acquire_MM(wait_res);
+    }
+}
 
 uint32_t TransactionProcess::GRandom(std::normal_distribution<double> *distribution, uint32_t max, uint32_t min)
 {

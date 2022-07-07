@@ -139,4 +139,53 @@ private:
     pthread_rwlock_t base_rwlock_;
 
 };
+
+class NetWork_MM{
+    public:
+    NetWork_MM();
+    virtual ~NetWork_MM();
+
+    void Thread_Run_Auto_MM(int trans_thread_id);
+    void Run_Auto_MM(bool deadlock_output);
+    void Thread_Run_MM_Periodic(int machine_id);
+    void Thread_Run_MM_Transmit(int machine_id);
+    void Thread_Run_MM_Detect(int machine_id);
+    void DLO_MM(TransactionProcess *detect_trans);
+    
+    void Transmit(TransactionProcess *cur_trans);
+    void Detect(TransactionProcess *cur_trans);
+
+    uint32_t GetAllTime_ms();
+    void ALL_TO_DB();
+    void ALL_TO_DB_easy();
+public:
+    //When the transaction is completed, the deadlock detection is notified.
+    std::atomic<bool> done_{false};
+    std::atomic<bool> time_out_{false};
+    std::vector<std::thread> DeadLock_workers;
+private:
+    bool deadlock_output_;
+    timespec start_time_point_;
+
+    std::atomic<int> global_id_;
+    std::atomic<int> global_trans_id_;
+    //M&M add unique public and private priority numbers
+    std::atomic<int> global_ap_;
+    std::vector<TransactionProcess *> trans_pool_;
+    std::vector<Resource *> resource_pool_;
+
+    std::vector<std::thread> workers;
+
+    std::mutex myMutex_;
+    std::condition_variable condition_;
+    std::vector<DeadLockInformation> deadlock_informations_;
+    std::mutex deadlock_informations_mu_;
+    std::vector<std::pair<int,int>> deadlock_loops_;
+    std::mutex deadlock_loops_mu_;
+
+    int base;
+    pthread_rwlock_t base_rwlock_;
+
+};
+
 #endif
